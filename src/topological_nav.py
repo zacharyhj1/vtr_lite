@@ -1,7 +1,7 @@
 #! /usr/bin/python2.7
 # Zachary Hickton-Jarvis 2021
 # Python 2.7.17
-# Generate node map from filenames
+# Generate node map from filenames and navigate a path
 
 import rospy
 
@@ -15,22 +15,23 @@ MAPDIR = "/home/zachary/Downloads"
 MAPFILETYPE = ".ymal"
 
 #load filenames
-# files with the format edge__.bag are accepted 
+# files with the format edge__.ymal are accepted 
 # with each _ being a node name comprised of a letter followed by any or no combination of numbers
-# examples: edgeA1B2.bag with nodes A1 to B2
-#           edgece4.bag  with nodes c to e4
+# examples: edgeA1B2.ymal with nodes A1 to B2
+#           edgece4.ymal  with nodes c to e4
 def loadFilenames():
     try:
         _, _, filenames = next(walk(MAPDIR))
         print("The following map files have been found in "+MAPDIR+":")
         print(filenames)
     except:
-        sys.exit("no files in Topological Map Directory")
+        sys.exit("Invalid Topological map directory")
         return None
     return filenames
     
 def loadVertices(filenames):
-    fileMatchstring = re.compile("edge([a-zA-Z]\d*)([a-zA-Z]\d*)\"+MAPFILETYPE)
+    matchString = "edge([a-zA-Z]\d*)([a-zA-Z]\d*)\\" + MAPFILETYPE
+    fileMatchstring = re.compile(matchString)
     nodes = set()
     vertices = set()
     files = set() #keep the valid filenames to use later
@@ -49,7 +50,7 @@ def loadVertices(filenames):
     return nodes, vertices, files
 
 #build dictionary map
-#set of node names, set of vertices form ((nodename,nodename),cost)
+#set of node names, set of vertices form topologicalMap[node][connectedNode][reverse, cost]
 def buildMap(nodes, vertices):
     topologicalMap = {}
 
@@ -117,6 +118,8 @@ if __name__ == "__main__":
     filenames = loadFilenames()
     nodes, vertices, files = loadVertices(filenames)
     topologicalMap = buildMap(nodes, vertices)
+    #verify topological map exists
+    if (topologicalMap.keys() == []): sys.exit("No valid files in " + MAPDIR)
     print("\nThe following nodes have been detected:")
     print(topologicalMap.keys()) #Check using the map as the nodes in the variable 'nodes' may not be valid
     walk = raw_input("\nPlease enter the nodes you want to visit in order, separated by spaces:\n").split(" ")
@@ -140,10 +143,21 @@ if __name__ == "__main__":
 
     #navigate each subpath
     for index in range(len(path)-1):
-        edgeName = "edge" + path[index] + path[index+1] 
+        #make this function for correct direction
+        firstNode = path[index] 
+        secondNode = path[index+1] 
+
+        #account for reverse navigating an edge
+        if (topologicalMap[firstNode][secondNode]['reverse']):
+            edgeName = "edge" + path[index+1] + path[index]
+            reverse = "true"
+        else:
+            edgeName = "edge" + path[index] + path[index+1]
+            reverse = "false"
         edgeFile = edgeName + MAPFILETYPE
+        
         if (edgeFile in files):
-            raw_input("\nNavigating edge " + edgeName + " \nPress enter to continue...\n")
-            serviceCall = """/vtr_lite/navigator "map_name: '"""+edgeName+"""'" """
+            raw_input("\nNavigating "+edgeName+", reverse: "+reverse+" \nPress enter to continue...\n")
+            serviceCall = "/vtr_lite/navigator \"map_name: '"+edgeName+"'\nreverse: "+reverse+"\" "
             rospy.wait_for_service(serviceCall)
     sys.exit("Navigation finished")
