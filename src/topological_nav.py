@@ -5,15 +5,33 @@
 
 import rospy
 import sys
-from os import walk
+import os
 import re
 
+from vtr_lite.srv import Navigation
 
-
-#get directory from parameters
-#either try using param server if possible or parse the file with re
-MAPDIR = "/home/zachary/Downloads"
+#get map directory from parameters
 MAPFILETYPE = ".ymal"
+with open(sys.path[0][:-3]+"include/param.h", 'r+') as f:
+    data = f.read()
+matchString = "nh\.param<string>\(\"map_folder\", FOLDER, \"(?P<map_folder>[^\"]+)\""
+result = re.search(matchString, data)
+try:
+    MAPDIR = result.group("map_folder")
+except:
+    sys.exit("no map_folder specified in param.h")
+#get folder for current topological map within map folder
+topoMatchString = "nh\.param<string>\(\"topological_map_folder\", TOPOFOLDER, \"(?P<topomap_folder>[^\"]+)\""
+result = re.search(topoMatchString, data)
+try:
+    topoFolder = result.group("topomap_folder")
+    if topoFolder[0] == "/": topoFolder = topoFolder[1:]
+    TOPOMAPDIR = os.path.join(MAPDIR, topoFolder)
+except Exception as e:
+    print(e)
+    sys.exit("no topological_map_folder specified in param.h")
+
+
 
 #load filenames
 # files with the format edge__.ymal are accepted 
@@ -22,21 +40,20 @@ MAPFILETYPE = ".ymal"
 #           edgece4.ymal  with nodes c to e4
 def loadFilenames():
     try:
-        _, _, filenames = next(walk(MAPDIR))
-        print("The following files have been found in "+MAPDIR+":")
+        _, _, filenames = next(os.walk(TOPOMAPDIR))
+        print("The following files have been found in "+TOPOMAPDIR+":")
         print(filenames)
-    except:
+    except Exception as e:
+        print(e)
         sys.exit("Invalid Topological map directory")
         return None
     return filenames
     
 def loadVertices(filenames):
-    matchString = "edge([a-zA-Z]\d*)([a-zA-Z]\d*)\\" + MAPFILETYPE
-    fileMatchstring = re.compile(matchString)
+    fileMatchstring = re.compile("edge([a-zA-Z]\d*)([a-zA-Z]\d*)\\" + MAPFILETYPE)
     nodes = set()
     vertices = set()
     files = set() #keep the valid filenames to use later
-
     
     for name in filenames:
         result = re.match(fileMatchstring, name)
@@ -132,12 +149,11 @@ def planPath(topologicalMap, nodePath):
 
 
 if __name__ == "__main__":
-    print(parseDistance("/home/zachary/maps/newChurch.ymal"))
     filenames = loadFilenames()
     nodes, vertices, files = loadVertices(filenames)
     topologicalMap = buildMap(nodes, vertices)
     #verify topological map exists
-    if (topologicalMap.keys() == []): sys.exit("No valid files in " + MAPDIR)
+    if (topologicalMap.keys() == []): sys.exit("No valid files in " + TOPOMAPDIR)
     print("\nThe following nodes have been detected:")
     print(topologicalMap.keys()) #Check using the map as the nodes in the variable 'nodes' may not be valid
     walk = raw_input("\nPlease enter the nodes you want to visit in order, separated by spaces:\n").split(" ")
@@ -178,9 +194,12 @@ if __name__ == "__main__":
             raw_input("\nNavigating "+edgeName+", reverse: "+reverse+" \nPress enter to continue...\n")
             # all topological map folders should be within the map directory, so that they can be called by navigator
 
-            #serviceCall = "/vtr_lite/navigator \"map_name: '"+edgeName+"'\nreverse: "+reverse+"\" "
-            rospy.wait_for_service('navigator')
-            rospy.ServiceProxy('navigator', navigatorCall)
-            navigatorCall = navigator()
-
+            rospy.wait_for_service('vtr_lite/navigator')
+            try:
+                navigatorCall = rospy.ServiceProxy('vtr_lite/navigator', Navigation)
+                resp1 = navigatorCall(edgeFile,reverse)
+                print(resp1.status)
+                #wait for end of naviagtion
+            except rospy.ServiceException as e:
+                print("Service call failed: %s"%e)
     sys.exit("Navigation finished")
