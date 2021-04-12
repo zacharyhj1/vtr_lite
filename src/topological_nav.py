@@ -24,12 +24,12 @@ except:
 topoMatchString = "nh\.param<string>\(\"topological_map_folder\", TOPOFOLDER, \"(?P<topomap_folder>[^\"]+)\""
 result = re.search(topoMatchString, data)
 try:
-    topoFolder = result.group("topomap_folder")
-    if topoFolder[0] == "/": topoFolder = topoFolder[1:]
-    TOPOMAPDIR = os.path.join(MAPDIR, topoFolder)
+    TOPOMAPNAME = result.group("topomap_folder")
+    if TOPOMAPNAME[0] == "/": TOPOMAPNAME = TOPOMAPNAME[1:]
+    TOPOMAPDIR = os.path.join(MAPDIR, TOPOMAPNAME)
 except Exception as e:
     print(e)
-    sys.exit("no topological_map_folder specified in param.h")
+    sys.exit("invalid topological_map_folder specified in param.h")
 
 
 
@@ -39,14 +39,13 @@ except Exception as e:
 # examples: edgeA1B2.ymal with nodes A1 to B2
 #           edgece4.ymal  with nodes c to e4
 def loadFilenames():
+    print(TOPOMAPDIR)
     try:
         _, _, filenames = next(os.walk(TOPOMAPDIR))
         print("The following files have been found in "+TOPOMAPDIR+":")
         print(filenames)
     except Exception as e:
-        print(e)
-        sys.exit("Invalid Topological map directory")
-        return None
+        sys.exit("Invalid Topological map directory %s" %e)
     return filenames
     
 def loadVertices(filenames):
@@ -78,7 +77,8 @@ def parseDistance(filename):
         if result:
             distance = result.group(1)
             return float(distance)
-    except:
+    except Exception as e:
+        print("No map_distance found in %s %s" %(filename,e))
         return False
         
 
@@ -188,7 +188,8 @@ if __name__ == "__main__":
         else:
             edgeName = "edge" + path[index] + path[index+1]
             reverse = "false"
-        edgeFile = edgeName + MAPFILETYPE
+        edgeFile = os.path.join(TOPOMAPNAME, edgeName)
+        print("check edgeFile value: %s" %(edgeFile))
         
         if (edgeFile in files):
             raw_input("\nNavigating "+edgeName+", reverse: "+reverse+" \nPress enter to continue...\n")

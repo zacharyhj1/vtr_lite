@@ -84,7 +84,7 @@ public:
 
         // map parameters
         nh.param<float>("topological_map_interval", TOPO_INTERVAL, 0.5);
-        nh.param<string>("map_folder", FOLDER, "/home/maps");
+        nh.param<string>("map_folder", FOLDER, "/home/zachary/maps");
         nh.param<string>("topological_map_folder", TOPOFOLDER, "church");
 
         // robot speed limits
