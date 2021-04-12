@@ -4,13 +4,14 @@
 # Generate node map from filenames and navigate a path
 
 import rospy
-
 import sys
 from os import walk
 import re
 
 
-#get directory from parameters or have input from terminal - to be decided
+
+#get directory from parameters
+#either try using param server if possible or parse the file with re
 MAPDIR = "/home/zachary/Downloads"
 MAPFILETYPE = ".ymal"
 
@@ -22,7 +23,7 @@ MAPFILETYPE = ".ymal"
 def loadFilenames():
     try:
         _, _, filenames = next(walk(MAPDIR))
-        print("The following map files have been found in "+MAPDIR+":")
+        print("The following files have been found in "+MAPDIR+":")
         print(filenames)
     except:
         sys.exit("Invalid Topological map directory")
@@ -36,18 +37,34 @@ def loadVertices(filenames):
     vertices = set()
     files = set() #keep the valid filenames to use later
 
-    #replace cost with loading the bag's path data which contains distance, also carry cost in vertices.add
-    cost = 1
+    
     for name in filenames:
         result = re.match(fileMatchstring, name)
         if result:
             node1, node2 = result.group(1), result.group(2)
             nodes.add(node1)
             nodes.add(node2)
-            vertices.add(((node1,node2), ord(node1)+ord(node2)-128)) #maintain directionality (node1 -> node2), necessary for knowing when to reverse traversal
+            # cost loads the bag's path data distance
+            vertices.add(((node1,node2), parseDistance(result.group(0)))) #maintain directionality (node1 -> node2), necessary for knowing when to reverse traversal
             files.add(result.group(0))
 
     return nodes, vertices, files
+
+def parseDistance(filename):
+    #open map file
+    try:
+        with open(filename, 'r+') as f:
+            data = f.read()
+        # parse the distance
+        distMatchstring = re.compile("map_distance: \[([^]]+)\]")
+        result = re.search(distMatchstring, data)
+        if result:
+            distance = result.group(1)
+            return float(distance)
+    except:
+        return False
+        
+
 
 #build dictionary map
 #set of node names, set of vertices form topologicalMap[node][connectedNode][reverse, cost]
@@ -115,6 +132,7 @@ def planPath(topologicalMap, nodePath):
 
 
 if __name__ == "__main__":
+    print(parseDistance("/home/zachary/maps/newChurch.ymal"))
     filenames = loadFilenames()
     nodes, vertices, files = loadVertices(filenames)
     topologicalMap = buildMap(nodes, vertices)
@@ -158,6 +176,11 @@ if __name__ == "__main__":
         
         if (edgeFile in files):
             raw_input("\nNavigating "+edgeName+", reverse: "+reverse+" \nPress enter to continue...\n")
-            serviceCall = "/vtr_lite/navigator \"map_name: '"+edgeName+"'\nreverse: "+reverse+"\" "
-            rospy.wait_for_service(serviceCall)
+            # all topological map folders should be within the map directory, so that they can be called by navigator
+
+            #serviceCall = "/vtr_lite/navigator \"map_name: '"+edgeName+"'\nreverse: "+reverse+"\" "
+            rospy.wait_for_service('navigator')
+            rospy.ServiceProxy('navigator', navigatorCall)
+            navigatorCall = navigator()
+
     sys.exit("Navigation finished")
