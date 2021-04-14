@@ -63,7 +63,7 @@ public:
     string SET_DIST_SERVER = "/vtr_lite/set_distance";
     string NN_MATCHER_SERVER = "vtr_lite/nn_matcher";
     string DIST_TOPIC = "/vtr_lite/distance";
-    string VEL_CMD_TOPIC = "vtr_lite/vel_cmd";
+    string VEL_CMD_TOPIC = "/drrobot_cmd_vel";
     string MAP_TOPIC = "vtr_lite/map_image";
     string ROBOT_POSE_TOPIC = "vtr_lite/robot_pose";
     string MATCHER_VIS_TOPIC = "vtr_lite/matching_visualisation";
@@ -77,8 +77,8 @@ public:
         // joystick axis
         nh.param<int>("axis_linear", LINEAR_AXIS, 1);
         nh.param<int>("axis_angular", ANGULAR_AXIS, 0);
-        nh.param<int>("stop_button", STOP_BUTTON, 2);
-        nh.param<int>("pause_button", PAUSE_BUTTON, 0);
+        nh.param<int>("stop_button", STOP_BUTTON, 0);
+        nh.param<int>("pause_button", PAUSE_BUTTON, 4);
         nh.param<int>("rotation_acceleration_button", ROT_ACC_BUTTON, 6);
         nh.param<int>("rotation_max_button", ROT_MAX_BUTTON, 7);
 
