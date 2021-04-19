@@ -7,11 +7,12 @@ import rospy
 import sys
 import os
 import re
+import time 
 
 from vtr_lite.srv import Navigation
 
 #get map directory from parameters
-MAPFILETYPE = ".ymal"
+MAPFILETYPE = ".yaml"
 with open(sys.path[0][:-3]+"include/param.h", 'r+') as f:
     data = f.read()
 matchString = "nh\.param<string>\(\"map_folder\", FOLDER, \"(?P<map_folder>[^\"]+)\""
@@ -68,6 +69,7 @@ def loadVertices(filenames):
 
 def parseDistance(filename):
     #open map file
+    filename = os.path.join(TOPOMAPDIR,filename)
     try:
         with open(filename, 'r+') as f:
             data = f.read()
@@ -109,18 +111,19 @@ def planPath(topologicalMap, nodePath):
     def find_subPath(start, end):
         tempMap = topologicalMap.copy()
         del tempMap[start]
-        unseen = tempMap.keys()             #not yet seen nodes
-        visible = [(start, 0, 'Start')]     #to be processed nodes
-        visited = {}                        #processed nodes
+        unseen = tempMap.keys()             # not yet seen nodes
+        visible = [(start, 0, 'Start')]     # to be processed nodes
+        visited = {}                        # processed nodes
+        distance = 0
         
         while end not in visited:
-            #main loop
-
             #deque a node
             #sort nodes by cumulative distance here 
             visible = sorted(visible, key=lambda x: x[1])
             visibleNode = visible.pop(0)
             visited[visibleNode[0]] = visibleNode[2]
+            #keeps track of chosen path's distance
+            if visibleNode[1]> distance: distance = visibleNode[1]
             #update adjacent nodes
             for node in topologicalMap[visibleNode[0]]:
                 if node in unseen:
@@ -133,19 +136,22 @@ def planPath(topologicalMap, nodePath):
         while previous != "Start":
             subPath.append(visited[previous])
             previous = visited[previous]
+        
         subPath.reverse()
-        return subPath[2:]
+        return subPath[2:], distance
 
     path = [nodePath[0]]
+    pathDistance = 0
     for index in range(len(nodePath)-1):
-        #for non nodes (potential instructions) do not add subpath
         try:
-            path = path + find_subPath(nodePath[index], nodePath[index+1])
-        except:
-            sys.exit("No path between " + nodePath[index] + " and " + nodePath[index+1])
-    print("-----------------------------------")
-    print("Path generated")
-    return path
+            subPath, subPathDistance = find_subPath(nodePath[index], nodePath[index+1])
+            path = path + subPath
+            pathDistance += subPathDistance
+        except Exception as e:
+            print("No path between " + nodePath[index] + " and " + nodePath[index+1])
+            sys.exit(e)
+    print("-----------------------------------\nPath generated")
+    return path, pathDistance
 
 
 if __name__ == "__main__":
@@ -157,7 +163,6 @@ if __name__ == "__main__":
     print("\nThe following nodes have been detected:")
     print(topologicalMap.keys()) #Check using the map as the nodes in the variable 'nodes' may not be valid
     walk = raw_input("\nPlease enter the nodes you want to visit in order, separated by spaces:\n").split(" ")
-    #walk = ['D', 'A', 'C', 'B', 'D']
     
     #verify the walk
     validWalk = True
@@ -173,34 +178,43 @@ if __name__ == "__main__":
             sys.exit("Invalid sequence of nodes")
 
     #plan the path
-    path = planPath(topologicalMap, walk)
-
+    path, pathDistance = planPath(topologicalMap, walk)
+    print(path)
+    
     #navigate each subpath
+    currentDistance = 0
     for index in range(len(path)-1):
         #make this function for correct direction
         firstNode = path[index] 
         secondNode = path[index+1] 
+        subPathDistance = topologicalMap[firstNode][secondNode]['cost']
+        print("Distance progress %s/%s" %(currentDistance, pathDistance))
 
         #account for reverse navigating an edge
         if (topologicalMap[firstNode][secondNode]['reverse']):
             edgeName = "edge" + path[index+1] + path[index]
-            reverse = "true"
+            reverse = True
         else:
             edgeName = "edge" + path[index] + path[index+1]
-            reverse = "false"
+            reverse = False
         edgeFile = os.path.join(TOPOMAPNAME, edgeName)
-        print("check edgeFile value: %s" %(edgeFile))
         
-        if (edgeFile in files):
-            raw_input("\nNavigating "+edgeName+", reverse: "+reverse+" \nPress enter to continue...\n")
+        if ((edgeName+MAPFILETYPE) in files):
+            if reverse:
+                raw_input("\nNavigating "+edgeName+", reverse: true \nPress enter to start navigation...\n")
+            else:
+                raw_input("\nNavigating "+edgeName+", reverse: false \nPress enter to start navigation...\n")
             # all topological map folders should be within the map directory, so that they can be called by navigator
-
+            print("Navigating...")
             rospy.wait_for_service('vtr_lite/navigator')
             try:
                 navigatorCall = rospy.ServiceProxy('vtr_lite/navigator', Navigation)
                 resp1 = navigatorCall(edgeFile,reverse)
-                print(resp1.status)
-                #wait for end of naviagtion
+                navigatorCall.close()
+                currentDistance += subPathDistance
             except rospy.ServiceException as e:
-                print("Service call failed: %s"%e)
+                sys.exit("Service call failed: %s"%e)
+        else:
+            sys.exit("Cannot locate edge in topological map file directory")
+    print("Distance progress %s/%s" %(currentDistance, pathDistance))
     sys.exit("Navigation finished")
