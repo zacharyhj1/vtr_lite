@@ -14,8 +14,11 @@ import time
 import subprocess
 import argparse
 
+from std_msgs.msg import Float32
 from vtr_lite.srv import Navigation
 
+
+rospy.init_node('topological_nav')
 #get map directory from parameters
 MAPFILETYPE = ".yaml"
 try:
@@ -140,6 +143,17 @@ def planPath(topologicalMap, nodePath):
                     except Exception as e:
                         print("%s \nWarning: edge %s to %s has no distance value" %(e,visiblenode[0],node))
                     unseen.remove(node)
+                #if lower cost for node found, update visible
+                else:
+                    visibleKeys = [visNode[0] for visNode in visible]
+                    if (node in visibleKeys):
+                        nodePos = visibleKeys.index(node)
+                        currentCost = visible[nodePos][1]
+                        potentialCost = visibleNode[1] + topologicalMap[visibleNode[0]][node]['cost']
+                        if (potentialCost < currentCost):
+                            visible[nodePos] = (node, potentialCost, visibleNode[0])
+
+
                 
         #get the path
         previous = end
@@ -241,12 +255,17 @@ def main():
                         bagfile = os.path.join(MAPDIR,edgeFile + "reversed.bag")
                     else:
                         bagfile = os.path.join(MAPDIR,edgeFile + ".bag")
-                    print("Playing rosbag %s" %bagfile)
                     rosbag_proc = subprocess.Popen(['rosbag', 'play', bagfile],stdin=subprocess.PIPE,stdout=subprocess.PIPE)
+                    print("Playing rosbag %s" %bagfile)
+                    #wait for rosbag to load
+                    bagwait = rospy.wait_for_message('vtr_lite/distance', Float32)
+                    #time.sleep(2)
+
+
                 #call navigator
                 print("Calling navigator")
                 navigatorCall = rospy.ServiceProxy('vtr_lite/navigator', Navigation)
-                resp1 = navigatorCall(edgeFile,reverse)
+                navigatorCall(edgeFile,reverse)
                 navigatorCall.close()
                 if args.simulation: 
                     print("Closing Rosbag")
