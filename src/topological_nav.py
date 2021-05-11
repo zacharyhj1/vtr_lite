@@ -246,6 +246,7 @@ def main():
 
             # all topological map folders should be within the map directory, so that they can be called by navigator
             print("Navigating...")
+
             rospy.wait_for_service('vtr_lite/navigator')
             try:
                 #play rosbag if simulation flag true
@@ -255,25 +256,35 @@ def main():
                         bagfile = os.path.join(MAPDIR,edgeFile + "reversed.bag")
                     else:
                         bagfile = os.path.join(MAPDIR,edgeFile + ".bag")
-                    rosbag_proc = subprocess.Popen(['rosbag', 'play', bagfile],stdin=subprocess.PIPE,stdout=subprocess.PIPE)
+                    rosbag_play = subprocess.Popen(['rosbag', 'play', bagfile],stdin=subprocess.PIPE,stdout=subprocess.PIPE)
                     print("Playing rosbag %s" %bagfile)
                     #wait for rosbag to load
-                    bagwait = rospy.wait_for_message('vtr_lite/distance', Float32)
+                    #bagwait = rospy.wait_for_message('vtr_lite/distance', Float32)
                     #time.sleep(2)
+                    # to pause rosbag play: rosbag_play.send_signal(subprocess.signal.SIGSTOP)
+                    # to resume rosbag play: rosbag_play.send_signal(subprocess.signal.SIGCONT)
 
 
                 #call navigator
                 print("Calling navigator")
-                navigatorCall = rospy.ServiceProxy('vtr_lite/navigator', Navigation)
-                navigatorCall(edgeFile,reverse)
+                navigatorCall = rospy.ServiceProxy('vtr_lite/navigator', Navigation, persistent=True)
+                res1 = navigatorCall(edgeFile,reverse)
+                while True:
+                    #print(res1)
+                    if res1.status:
+                        break
+                print("Closing navigator")
                 navigatorCall.close()
-                if args.simulation: 
-                    print("Closing Rosbag")
-                    rosbag_proc.send_signal(subprocess.signal.SIGINT)
-                    rosbag_proc.terminate()
+
                 currentDistance += subPathDistance
             except rospy.ServiceException as e:
                 sys.exit("Service call failed: %s"%e)
+            finally:
+                navigatorCall.close()
+                if args.simulation and (rosbag_play.poll is None):
+                    print("Closing Rosbag")
+                    rosbag_play.send_signal(subprocess.signal.SIGINT)
+                    rosbag_play.terminate()
         else:
             sys.exit("Cannot locate edge in topological map file directory")
     print("Distance progress %s/%s" %(currentDistance, pathDistance))

@@ -19,7 +19,8 @@ typedef enum
     PREPARING,
     PAUSED,
     NAVIGATING,
-    COMPLETED
+    COMPLETED,
+    CLOSED
 } ENAVIGATINGState;
 
 class Navigator : public ParamSever
@@ -131,6 +132,7 @@ int binarySearch(const vector<float> &array, int i, int j, float val)
 /* class functions */
 bool Navigator::navigate(vtr_lite::Navigation::Request& req, vtr_lite::Navigation::Response& res)
 {
+    //state = PREPARING;
     // load the map
     loadMap(req.map_name);
     // set the reverse mode or not
@@ -163,7 +165,9 @@ bool Navigator::navigate(vtr_lite::Navigation::Request& req, vtr_lite::Navigatio
     {
         if(state == COMPLETED)
         {
+            ROS_INFO("State: Completed");
             res.status = true;
+            state = CLOSED;
             return true;
         }
 
@@ -359,7 +363,7 @@ void Navigator::distanceCallBack(const std_msgs::Float32::ConstPtr &dist_msg)
         // add the visual compensation (important)
         twist.angular.z += visual_offset * PIXEL_VEL_GAIN;
 
-        if ((!is_reverse & dist_travelled > goal_dist) || (is_reverse & dist_travelled <= 0))
+        if ((!is_reverse & dist_travelled > goal_dist) || (is_reverse & dist_travelled <= 0) && (state != CLOSED))
             state = COMPLETED;
 
         last_map_img_idx = map_img_idx;
@@ -371,7 +375,9 @@ void Navigator::distanceCallBack(const std_msgs::Float32::ConstPtr &dist_msg)
         twist.angular.z = twist.angular.y = twist.angular.x = 0.0;
 
         if(state==COMPLETED)
+        {
             ROS_INFO("Navigation Task Completed!");
+        }
         else
             ROS_INFO("Navigation Task Paused!");
     }
