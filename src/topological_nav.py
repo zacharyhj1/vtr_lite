@@ -5,6 +5,7 @@
 # To run a simulation: ensure you have reversed playback versions of your rosbags used in simulation
 # they must be named the same as the original rosbag with 'reversed' before '.bag'
 # add the '--simulation' flag to the script call to run a simulation
+# add the '--step' flag to the step through each navigator call
 
 import rospy
 import sys
@@ -49,6 +50,13 @@ except Exception as e:
 # examples: edgeA1B2.yaml with nodes A1 to B2
 #           edgece4.yaml  with nodes c to e4
 def loadFilenames():
+    '''
+    Retrieves the filenames of every file in the directory specified by MAP_FOLDER and TOPOLOGICAL_MAP_FOLDER in params.h
+    Returns
+    ----------
+    filenames : List
+        A list of filenames from the folder specified in include/params.h
+    '''
     print(TOPOMAPDIR)
     try:
         _, _, filenames = next(os.walk(TOPOMAPDIR))
@@ -58,11 +66,31 @@ def loadFilenames():
         sys.exit("Invalid Topological map directory %s" %e)
     return filenames
     
-def loadVertices(filenames):
+def loadEdges(filenames):
+    '''
+    Generates the set of valid edges and nodes of the topological map from a list of filenames
+    Filenames with the format edge__.yaml are accepted 
+    with each _ being a node name comprised of a letter followed by any or no combination of numbers
+    examples: edgeA1B2.yaml with nodes A1 to B2
+              edgece4.yaml  with nodes c to e4
+    Parameters
+    ----------
+    filenames : List
+        A list of strings containing filenames
+    Returns
+    ----------
+    nodes : Set
+        The set of all valid nodes detected from the filenames
+    edges : Set
+        A set of tuples containing the node pair and distance of each valid edge
+    files : Set
+        The set of all valid filenames for use in the topological map
+    '''
+    
     try:
         fileMatchstring = re.compile("edge([a-zA-Z]\d*)([a-zA-Z]\d*)\\" + MAPFILETYPE)
         nodes = set()
-        vertices = set()
+        edges = set()
         files = set() #keep the valid filenames to use later
         
         for name in filenames:
@@ -72,13 +100,26 @@ def loadVertices(filenames):
                 nodes.add(node1)
                 nodes.add(node2)
                 # cost loads the bag's path data distance
-                vertices.add(((node1,node2), parseDistance(result.group(0)))) #maintain directionality (node1 -> node2), necessary for knowing when to reverse traversal
+                edges.add(((node1,node2), parseDistance(result.group(0)))) 
+                #maintains directionality (node1 -> node2), necessary for knowing when to reverse traversal
                 files.add(result.group(0))
     except Exception as e:
         sys.exit("Invalid Topological map directory %s" %e)
-    return nodes, vertices, files
+    return nodes, edges, files
 
 def parseDistance(filename):
+    '''
+    Parses the text of map files to retrieve the distance of the map
+    Parameters
+    ----------
+    filename : String
+        The filename of the map file
+    Returns
+    ----------
+    distance : Float
+    The distance of the navigation recorded in the map file
+    '''
+
     #open map file
     filename = os.path.join(TOPOMAPDIR,filename)
     try:
@@ -96,30 +137,73 @@ def parseDistance(filename):
         
 
 
-#build dictionary map
-#set of node names, set of vertices form topologicalMap[node][connectedNode][reverse, cost]
-def buildMap(nodes, vertices):
+def buildMap(nodes, edges):
+    '''
+    Builds a topological map from node names and edges
+    Parameters
+    ----------
+    nodes : List
+        A list of node names in String format
+    edges : List
+        A list of edges in Tuple format
+    Returns
+    ----------
+    topologicalMap : Dictionary
+    A multilevel dictionary representing a high-level topological map, accessible with: topologicalMap[node][connectedNode][reverse, cost]
+    '''
+
     topologicalMap = {}
 
     #try optimise this
     for node in nodes:
-        for vertex in vertices:
+        for edge in edges:
             for direction in [0,1]:
-                if vertex[0][1-direction] == node:
+                if edge[0][1-direction] == node:
                     reverse = (direction == 0)
                     if node in topologicalMap:
-                        topologicalMap[node][vertex[0][direction]] = {'reverse': reverse, 'cost': vertex[1]}
+                        #do not overwrite existing non-reverse connections
+                        if (not edge[0][direction] in topologicalMap[node]) or topologicalMap[node][edge[0][direction]]['reverse'] == True:
+                            topologicalMap[node][edge[0][direction]] = {'reverse': reverse, 'cost': edge[1]}
                     else:
-                        topologicalMap[node] = {vertex[0][direction] : {'reverse': reverse, 'cost': vertex[1]}}
+                        topologicalMap[node] = {edge[0][direction] : {'reverse': reverse, 'cost': edge[1]}}
 
 
     return topologicalMap
 
-#try path planning
+
 def planPath(topologicalMap, nodePath):
+    '''
+    Plan a path between all nodes in the nodePath using the map supplied in topologicalMap
+    Parameters
+    ----------
+    topologicalMap : Dictionary
+        A multi-level Dictionary representing a high-level topological map.
+    nodePath : List
+        A List with a start node at index [0] and a sequence of destination nodes after.
+    Returns
+    ----------
+    path : List
+        A list of nodes comprised of shortest-path routes between the nodes in nodePath
+    pathDistance : float
+        The total distance of the path generated
+    '''
     
-    #dijkstra's algorithm approach
     def find_subPath(start, end):
+        '''
+        A Dijkstra's based shortest-path algorithm
+        Parameters
+        ----------
+        start : String
+            The name of the starting node
+        end : String
+            The name of the destination node
+        Returns
+        ----------
+        subPath[:2] : List
+            A list of nodes comprised of the shortest path route betwen start and end, without the start node 
+        distance : float
+            The total distance of the path generated
+        '''
         tempMap = topologicalMap.copy()
         del tempMap[start]
         unseen = tempMap.keys()             # not yet seen nodes
@@ -181,15 +265,17 @@ def planPath(topologicalMap, nodePath):
 
 def main():
     #parse argument
-    parser = argparse.ArgumentParser(description='Check for --simulation flag')
+    parser = argparse.ArgumentParser(description='Check for --simulation flag and --step flag')
     parser.add_argument('--simulation', dest='simulation', action='store_true')
-    parser.set_defaults(simulation = False)
+    parser.add_argument('--step', dest='step', action='store_true')
+    parser.set_defaults(simulation = False, step = False)
     args = parser.parse_args()
 
     #load filenames in specified directory, build map
     filenames = loadFilenames()
-    nodes, vertices, files = loadVertices(filenames)
+    nodes, vertices, files = loadEdges(filenames)
     topologicalMap = buildMap(nodes, vertices)
+    print(topologicalMap)
     #verify topological map exists
     if (topologicalMap.keys() == []): sys.exit("No valid files in " + TOPOMAPDIR)
     print("\nThe following nodes have been detected:")
@@ -232,8 +318,9 @@ def main():
             reverse = False
         edgeFile = os.path.join(TOPOMAPNAME, edgeName)
         
+        #wait for user input if --step
         if ((edgeName+MAPFILETYPE) in files):
-            if args.simulation:
+            if (not args.step):
                 if reverse:
                     print("\nNavigating "+edgeName+", reverse: true\n")
                 else:
@@ -249,7 +336,7 @@ def main():
 
             rospy.wait_for_service('vtr_lite/navigator')
             try:
-                #play rosbag if simulation flag true
+                #play rosbag if --simulation
                 if args.simulation:
                     
                     if reverse: 
@@ -258,11 +345,6 @@ def main():
                         bagfile = os.path.join(MAPDIR,edgeFile + ".bag")
                     rosbag_play = subprocess.Popen(['rosbag', 'play', bagfile],stdin=subprocess.PIPE,stdout=subprocess.PIPE)
                     print("Playing rosbag %s" %bagfile)
-                    #wait for rosbag to load
-                    #bagwait = rospy.wait_for_message('vtr_lite/distance', Float32)
-                    #time.sleep(2)
-                    # to pause rosbag play: rosbag_play.send_signal(subprocess.signal.SIGSTOP)
-                    # to resume rosbag play: rosbag_play.send_signal(subprocess.signal.SIGCONT)
 
 
                 #call navigator
@@ -270,7 +352,6 @@ def main():
                 navigatorCall = rospy.ServiceProxy('vtr_lite/navigator', Navigation, persistent=True)
                 res1 = navigatorCall(edgeFile,reverse)
                 while True:
-                    #print(res1)
                     if res1.status:
                         break
                 print("Closing navigator")
@@ -280,6 +361,7 @@ def main():
             except rospy.ServiceException as e:
                 sys.exit("Service call failed: %s"%e)
             finally:
+                #close call/rosbag if error occurs
                 navigatorCall.close()
                 if args.simulation and (rosbag_play.poll is None):
                     print("Closing Rosbag")
